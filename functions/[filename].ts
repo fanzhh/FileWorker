@@ -4,7 +4,6 @@ import {
     CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommandOutput,
-    HeadObjectCommandOutput,
 } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -12,6 +11,43 @@ import mime from 'mime/lite';
 
 import Env from './utils/Env';
 import { createS3Client, auth } from './utils/utils';
+
+interface HeadResult {
+    metadata: Record<string, string>;
+    contentType?: string;
+    contentLength?: number;
+    lastModified?: Date;
+    eTag?: string;
+}
+
+async function headS3Object(env: Env, filename: string): Promise<HeadResult | null> {
+    const s3 = createS3Client(env);
+    const command = new HeadObjectCommand({
+        Bucket: env.BUCKET!,
+        Key: filename,
+    });
+    const url = await getSignedUrl(s3, command, { expiresIn: 300 });
+    const res = await fetch(url, { method: 'HEAD' });
+    if (!res.ok) {
+        return null;
+    }
+    const metadata: Record<string, string> = {};
+    for (const [key, value] of res.headers.entries()) {
+        const lower = key.toLowerCase();
+        if (lower.startsWith('x-amz-meta-')) {
+            metadata[lower.slice('x-amz-meta-'.length)] = value;
+        }
+    }
+    const contentLengthHeader = res.headers.get('content-length');
+    const lastModifiedHeader = res.headers.get('last-modified');
+    return {
+        metadata,
+        contentType: res.headers.get('content-type') ?? undefined,
+        contentLength: contentLengthHeader ? Number(contentLengthHeader) : undefined,
+        lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : undefined,
+        eTag: res.headers.get('etag') ?? undefined,
+    };
+}
 
 function buildObjectHeaders(
     filename: string,
@@ -36,10 +72,10 @@ function buildObjectHeaders(
     if (meta['x-store-type'] === "text") {
         headers.set('content-type', 'text/plain;charset=utf-8');
     }
-    if (contentLength !== undefined) {
+    if (contentLength !== undefined && Number.isFinite(contentLength)) {
         headers.set('content-length', contentLength.toString());
     }
-    if (lastModified) {
+    if (lastModified && !Number.isNaN(lastModified.getTime())) {
         headers.set('last-modified', lastModified.toUTCString());
     }
     if (eTag) {
@@ -53,24 +89,17 @@ function buildObjectHeaders(
 export const onRequestHead: PagesFunction<Env> = async (context) => {
     const { params, env, request } = context;
     const filename = params.filename as string;
-    const { BUCKET } = env;
-    const s3 = createS3Client(env);
-    let response: HeadObjectCommandOutput;
-    try {
-        response = await s3.send(new HeadObjectCommand({
-            Bucket: BUCKET!,
-            Key: filename,
-        }));
-    } catch {
+    const head = await headS3Object(env, filename);
+    if (!head) {
         return new Response(null, { status: 404 });
     }
     const headers = buildObjectHeaders(
         filename,
-        response.Metadata,
-        response.ContentType,
-        response.ContentLength,
-        response.LastModified,
-        response.ETag,
+        head.metadata,
+        head.contentType,
+        head.contentLength,
+        head.lastModified,
+        head.eTag,
     );
     if (headers.get("x-store-visibility") !== "public" && !(await auth(env, request))) {
         return new Response(null, { status: 404 });
@@ -163,19 +192,13 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
     const s3 = createS3Client(env);
 
     // Preserve existing x-store-* metadata before replacing
-    let existingMeta: Record<string, string> = {};
-    try {
-        const head = await s3.send(new HeadObjectCommand({
-            Bucket: BUCKET!,
-            Key: filename,
-        }));
-        existingMeta = head.Metadata ?? {};
-    } catch {
+    const head = await headS3Object(env, filename);
+    if (!head) {
         return new Response("Not found", { status: 404 });
     }
 
     const headers = new Headers(request.headers);
-    const mergedMeta: Record<string, string> = { ...existingMeta };
+    const mergedMeta: Record<string, string> = { ...head.metadata };
     for (const [key, value] of headers.entries()) {
         if (key.startsWith('x-store-')) {
             mergedMeta[key] = value;
@@ -183,7 +206,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
     }
     const command = new CopyObjectCommand({
         Bucket: BUCKET!,
-        CopySource: `${BUCKET}/${encodeURIComponent(filename)}`,
+        CopySource: `${BUCKET}/${filename}`,
         Key: filename,
         MetadataDirective: "REPLACE",
         Metadata: mergedMeta,

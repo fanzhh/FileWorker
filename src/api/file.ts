@@ -1,7 +1,15 @@
 import axios, { type AxiosProgressEvent } from 'axios';
 
+const safeDecode = (segment: string) => {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+};
+
 const encodeKeyPath = (filename: string) => {
-    return filename.split('/').map(encodeURIComponent).join('/');
+    return filename.split('/').map((seg) => encodeURIComponent(safeDecode(seg))).join('/');
 };
 
 const PutFile = async (

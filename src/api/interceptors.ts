@@ -9,12 +9,13 @@ const initInterceptors = () => {
         },
         async (error: AxiosError) => {
             const status = error.response?.status;
+            const isHead = error.config?.method?.toLowerCase() === 'head';
             if (status === 401) {
                 if (router.currentRoute.value.path !== '/login') {
                     toast("Unauthorized", "error");
                     await router.push('/login');
                 }
-            } else {
+            } else if (!isHead) {
                 toast(error.message || "Error", "error");
             }
             return Promise.reject(error);
