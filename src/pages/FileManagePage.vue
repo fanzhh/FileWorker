@@ -12,6 +12,7 @@ const { t: $t } = useI18n();
 
 const uploadedFiles: Ref<_Object[]> = ref([]);
 const searchQuery = ref('');
+const visibilityFilter = ref<'all' | 'public' | 'private'>('all');
 const loading = ref(false);
 const nextToken = ref<string | undefined>(undefined);
 const isTruncated = ref(false);
@@ -28,8 +29,16 @@ function decodeKey(key: string) {
 
 const filteredFiles = computed(() => {
     const q = searchQuery.value.trim().toLowerCase();
-    if (!q) return uploadedFiles.value;
-    return uploadedFiles.value.filter((f) => decodeKey(f.Key ?? '').toLowerCase().includes(q));
+    return uploadedFiles.value.filter((f) => {
+        const key = f.Key ?? '';
+        if (q && !decodeKey(key).toLowerCase().includes(q)) {
+            return false;
+        }
+        if (visibilityFilter.value !== 'all') {
+            return visibilityMap[key] === visibilityFilter.value;
+        }
+        return true;
+    });
 });
 
 const fetchVisibilityBatch = async (keys: string[]) => {
@@ -108,13 +117,9 @@ const onEditClick = (key?: string) => {
 };
 
 const onDeleteFileClick = async (key?: string) => {
-    if (!key) {
-        return;
-    }
+    if (!key) return;
     const confirmed = window.confirm($t('common.delete_confirm', { name: decodeKey(key) }));
-    if (!confirmed) {
-        return;
-    }
+    if (!confirmed) return;
     try {
         await DeleteFile(key);
         uploadedFiles.value = uploadedFiles.value.filter((f) => f.Key !== key);
@@ -127,38 +132,76 @@ const onDeleteFileClick = async (key?: string) => {
 </script>
 
 <template>
-    <div class="flex flex-col items-center mt-4 mb-10">
-        <nav class="max-w-screen-md w-4/5 flex flex-row gap-4 text-sm text-gray-600 mb-3">
-            <router-link to="/" class="hover:underline">{{ $t('page_title.index') }}</router-link>
-            <router-link to="/file" class="hover:underline">{{ $t('page_title.file') }}</router-link>
-            <router-link to="/clip" class="hover:underline">{{ $t('page_title.clip') }}</router-link>
-        </nav>
-        <h1 class="text-xl font-semibold">{{ $t("page_title.filemanage") }}</h1>
-        <div class="max-w-screen-md w-4/5 mt-4 flex flex-row gap-2">
+    <div class="max-w-4xl mx-auto px-4 py-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-3">
+                <button
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                    @click="router.push('/')"
+                >
+                    <span class="i-mdi-arrow-left w-4 h-4"></span>
+                    <span>{{ $t('common.back_home') }}</span>
+                </button>
+                <span class="text-sm text-slate-500">
+                    {{ $t('common.file_count', { count: filteredFiles.length }) }}
+                </span>
+            </div>
+            <button
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                :disabled="loading"
+                @click="refreshFiles(false)"
+            >
+                <span class="i-mdi-refresh w-4 h-4" :class="loading ? 'animate-spin' : ''"></span>
+                <span>{{ $t('common.refresh') }}</span>
+            </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 mb-4">
             <input
                 v-model="searchQuery"
                 type="search"
-                class="flex-1 rounded border-1 border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+                class="flex-1 min-w-52 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
                 :placeholder="$t('common.search_placeholder')"
             />
+            <div class="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs">
+                <button
+                    v-for="tab in (['all', 'private', 'public'] as const)"
+                    :key="tab"
+                    class="px-3 py-1 rounded-md font-medium transition cursor-pointer"
+                    :class="visibilityFilter === tab ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'"
+                    @click="visibilityFilter = tab"
+                >
+                    {{ $t(`common.${tab}`) }}
+                </button>
+            </div>
         </div>
-        <div class="py-2 max-w-screen-md w-4/5">
-            <div v-if="!loading && filteredFiles.length === 0" class="text-center text-gray-400 py-10">
+
+        <div class="flex flex-col gap-2.5">
+            <div v-if="!loading && filteredFiles.length === 0" class="text-center text-slate-400 py-14 bg-white rounded-xl border border-slate-200">
                 {{ $t('common.empty') }}
             </div>
-            <div v-for="file in filteredFiles" :key="file.Key"
-                class="w-full flex flex-row items-center mt-3 rounded border-1 border-gray-300 bg-white px-3 py-2 gap-3">
-                <div class="w-8 h-8 shrink-0 i-mdi-file-document-outline text-gray-500"></div>
+            <div
+                v-for="file in filteredFiles"
+                :key="file.Key"
+                class="w-full flex items-center rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 gap-3 shadow-sm hover:border-slate-300 transition"
+            >
+                <div class="w-7 h-7 shrink-0 i-mdi-file-document-outline text-slate-400"></div>
                 <div class="flex flex-col title flex-1 min-w-0">
-                    <a class="text-base font-semibold truncate hover:underline" :title="decodeKey(file.Key!)"
-                        :href="`/${encodeKeyPath(file.Key!)}`" target="_blank">{{ decodeKey(file.Key!) }}</a>
-                    <div class="text-xs text-gray-500 flex flex-row items-center gap-2">
+                    <a
+                        class="text-sm font-semibold text-slate-900 truncate hover:text-emerald-600 hover:underline"
+                        :title="decodeKey(file.Key!)"
+                        :href="`/${encodeKeyPath(file.Key!)}`"
+                        target="_blank"
+                    >
+                        {{ decodeKey(file.Key!) }}
+                    </a>
+                    <div class="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
                         <span>{{ formatBytes(file.Size ?? 0) }}</span>
                         <span v-if="file.LastModified">· {{ new Date(file.LastModified).toLocaleString() }}</span>
                     </div>
                 </div>
                 <button
-                    class="text-xs px-2 py-1 rounded border-1 shrink-0 transition"
+                    class="text-xs px-2.5 py-1 rounded-full border font-medium shrink-0 transition cursor-pointer"
                     :class="visibilityMap[file.Key!] === 'public'
                         ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
                         : 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'"
@@ -171,16 +214,34 @@ const onDeleteFileClick = async (key?: string) => {
                             ? $t('common.private')
                             : '...' }}
                 </button>
-                <button class="w-5 h-5 shrink-0 i-mdi-content-copy text-gray-600 hover:text-black cursor-pointer"
-                    :title="$t('common.copy_link')" @click="onCopyLink(file.Key)"></button>
-                <button class="w-5 h-5 shrink-0 i-mdi-pencil-outline text-gray-600 hover:text-black cursor-pointer"
-                    :title="$t('common.edit')" @click="onEditClick(file.Key)"></button>
-                <button class="w-5 h-5 shrink-0 i-mdi-trash-can-outline text-gray-600 hover:text-red-600 cursor-pointer"
-                    :title="$t('common.delete')" @click="onDeleteFileClick(file.Key)"></button>
+                <button
+                    class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer shrink-0"
+                    :title="$t('common.copy_link')"
+                    @click="onCopyLink(file.Key)"
+                >
+                    <span class="w-4 h-4 block i-mdi-content-copy"></span>
+                </button>
+                <button
+                    class="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer shrink-0"
+                    :title="$t('common.edit')"
+                    @click="onEditClick(file.Key)"
+                >
+                    <span class="w-4 h-4 block i-mdi-pencil-outline"></span>
+                </button>
+                <button
+                    class="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition cursor-pointer shrink-0"
+                    :title="$t('common.delete')"
+                    @click="onDeleteFileClick(file.Key)"
+                >
+                    <span class="w-4 h-4 block i-mdi-trash-can-outline"></span>
+                </button>
             </div>
-            <div v-if="isTruncated" class="flex justify-center mt-5">
-                <button class="px-4 py-1.5 rounded border-1 border-gray-300 bg-white text-sm hover:bg-gray-100"
-                    :disabled="loading" @click="refreshFiles(true)">
+            <div v-if="isTruncated" class="flex justify-center mt-4">
+                <button
+                    class="px-5 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                    :disabled="loading"
+                    @click="refreshFiles(true)"
+                >
                     {{ loading ? $t('common.loading') : $t('common.load_more') }}
                 </button>
             </div>
@@ -188,14 +249,7 @@ const onDeleteFileClick = async (key?: string) => {
     </div>
 </template>
 
-<style>
-html,
-body,
-#app {
-    margin: 0;
-    padding: 0;
-    background-color: #f8f9fa;
-}
+<style scoped>
 .title {
     overflow: hidden;
     text-overflow: ellipsis;

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { minimalSetup } from "codemirror"
-import { EditorState } from "@codemirror/state"
-import { EditorView, lineNumbers, highlightSpecialChars, drawSelection, dropCursor } from "@codemirror/view"
+import { minimalSetup } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { EditorView, lineNumbers, highlightSpecialChars, drawSelection, dropCursor } from "@codemirror/view";
 
-import { onMounted, onBeforeUnmount, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import useClipStore from "@/store/clip";
 
@@ -13,19 +13,22 @@ import { copyToClipboard, getRandomFilename } from "@/utils/utils";
 import { toast } from "@/utils/toast";
 
 const route = useRoute();
+const router = useRouter();
 const { t: $t } = useI18n();
+const clipStore = useClipStore();
 
 const code = ref("");
 const modified = ref(false);
 const saving = ref(false);
 const saved = ref(false);
+const loadingDoc = ref(false);
 const editorElement = ref();
-let editor: EditorView;
+let editor: EditorView | null = null;
 
-const initialKey = typeof route.query.key === 'string' && route.query.key ? route.query.key : '';
-let filename = ref(initialKey || getRandomFilename());
+const queryKey = computed(() => (typeof route.query.key === 'string' && route.query.key ? route.query.key : ''));
+const filename = ref(queryKey.value || getRandomFilename());
 
-let startState = EditorState.create({
+const startState = EditorState.create({
   doc: "",
   extensions: [
     minimalSetup,
@@ -40,48 +43,78 @@ let startState = EditorState.create({
       }
     }),
   ]
-})
+});
 
-const clipStore = useClipStore();
+const setEditorDoc = (text: string) => {
+  if (!editor) return;
+  editor.dispatch({
+    changes: { from: 0, to: editor.state.doc.length, insert: text },
+  });
+};
+
+const loadByKey = async (key: string) => {
+  if (!key) {
+    filename.value = getRandomFilename();
+    setEditorDoc("");
+    modified.value = false;
+    saved.value = false;
+    return;
+  }
+  filename.value = key;
+  loadingDoc.value = true;
+  try {
+    const res = await GetFileText(key);
+    setEditorDoc(res.content);
+    clipStore.setVisibility(res.visibility);
+    modified.value = false;
+    saved.value = true;
+  } catch (err) {
+    console.error(err);
+  } finally {
+    loadingDoc.value = false;
+  }
+};
 
 onMounted(async () => {
   editor = new EditorView({
     state: startState,
     parent: editorElement.value,
-  })
+  });
   editor.requestMeasure({
     read: () => {
-      editor.focus();
+      editor?.focus();
     }
-  })
-
-  if (initialKey) {
-    try {
-      const res = await GetFileText(initialKey);
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: res.content },
-      });
-      clipStore.setVisibility(res.visibility);
-      modified.value = false;
-      saved.value = true;
-    } catch (err) {
-      console.error(err);
-    }
+  });
+  if (queryKey.value) {
+    await loadByKey(queryKey.value);
   }
-})
+});
 
-let refreshRandomFileName = () => {
+watch(queryKey, async (newKey) => {
+  await loadByKey(newKey);
+});
+
+const refreshRandomFileName = () => {
   filename.value = getRandomFilename();
   saved.value = false;
-}
+};
 
-let onSaveBtnClick = async () => {
-  if (!filename.value.trim() || saving.value) {
+const onNewClip = () => {
+  if (queryKey.value) {
+    router.push('/clip');
+  } else {
+    void loadByKey('');
+  }
+};
+
+const onSaveBtnClick = async () => {
+  const targetName = filename.value.trim();
+  if (!targetName || saving.value) {
     return;
   }
   saving.value = true;
   try {
-    await PutFile(filename.value.trim(), code.value, clipStore.visibility, "text");
+    await PutFile(targetName, code.value, clipStore.visibility, "text");
     modified.value = false;
     saved.value = true;
     toast($t('common.save_success'), 'success');
@@ -90,24 +123,24 @@ let onSaveBtnClick = async () => {
   } finally {
     saving.value = false;
   }
-}
+};
 
-let onCopyLink = async () => {
+const onCopyLink = async () => {
   const url = `${window.location.origin}/${encodeKeyPath(filename.value.trim())}`;
   if (await copyToClipboard(url)) {
     toast($t('common.copied'), 'success');
   }
-}
+};
 
-let saveContentKeydown = (e: KeyboardEvent) => {
+const saveContentKeydown = (e: KeyboardEvent) => {
   if ((e.ctrlKey && e.key === "s") || (e.metaKey && e.key === "s")) {
     e.preventDefault();
-    onSaveBtnClick();
+    void onSaveBtnClick();
   }
-}
+};
 
-let onPasteFile = async (e: ClipboardEvent) => {
-  if (!e.clipboardData?.files.length) {
+const onPasteFile = async (e: ClipboardEvent) => {
+  if (!editor || !e.clipboardData?.files.length) {
     return;
   }
   const file = e.clipboardData.files[0];
@@ -116,41 +149,113 @@ let onPasteFile = async (e: ClipboardEvent) => {
   editor.dispatch({
     changes: { from: cursor, insert: text },
   });
-}
+};
 
 onMounted(() => {
   window.addEventListener("keydown", saveContentKeydown);
   document.addEventListener("paste", onPasteFile);
-})
+});
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", saveContentKeydown);
   document.removeEventListener("paste", onPasteFile);
-})
+  editor?.destroy();
+});
 </script>
 
 <template>
-  <div class="flex flex-col items-center">
-    <nav class="max-w-screen-md w-4/5 flex flex-row gap-4 mt-4 text-sm text-gray-600">
-      <router-link to="/" class="hover:underline">{{ $t('page_title.index') }}</router-link>
-      <router-link to="/file" class="hover:underline">{{ $t('page_title.file') }}</router-link>
-      <router-link to="/filemanage" class="hover:underline">{{ $t('page_title.filemanage') }}</router-link>
-    </nav>
-    <div class="text-area flex flex-col mt-3">
-      <div class="header p-2 flex flex-row items-center">
-        <input class="filename-input monospace" type="text" v-model="filename" :placeholder="$t('common.filename')" />
-        <button @click="refreshRandomFileName" class="i-mdi-refresh ml-1 w-5 h-5" title="Random filename"></button>
-        <div :class="modified ? 'unsave-attention' : 'save-attention'"></div>
+  <div class="max-w-4xl mx-auto px-4 py-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <div class="flex items-center gap-2">
+        <button
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+          @click="router.push('/')"
+        >
+          <span class="i-mdi-arrow-left w-4 h-4"></span>
+          <span>{{ $t('common.back_home') }}</span>
+        </button>
+        <button
+          v-if="queryKey"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+          @click="router.push('/filemanage')"
+        >
+          <span class="i-mdi-folder-outline w-4 h-4"></span>
+          <span>{{ $t('common.back_manage') }}</span>
+        </button>
       </div>
+      <button
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+        @click="onNewClip"
+      >
+        <span class="i-mdi-plus w-4 h-4"></span>
+        <span>{{ $t('common.new_clip') }}</span>
+      </button>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
+        <input
+          class="monospace border border-slate-300 bg-white rounded-lg px-3 py-1.5 text-sm w-60 max-w-full outline-none focus:border-emerald-500"
+          type="text"
+          v-model="filename"
+          :placeholder="$t('common.filename')"
+        />
+        <button
+          class="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+          title="Random filename"
+          @click="refreshRandomFileName"
+        >
+          <span class="i-mdi-refresh w-4 h-4 block"></span>
+        </button>
+        <span
+          class="ml-auto text-xs px-2.5 py-1 rounded-full font-medium"
+          :class="loadingDoc
+            ? 'bg-slate-100 text-slate-500'
+            : modified
+              ? 'bg-amber-50 text-amber-700'
+              : 'bg-emerald-50 text-emerald-700'"
+        >
+          {{ loadingDoc ? $t('common.loading') : modified ? $t('common.unsaved') : $t('common.saved') }}
+        </span>
+      </div>
+
       <div ref="editorElement"></div>
-      <div class="footer p-2 items-center gap-2">
-        <select class="public-select" v-model="clipStore.visibility">
+
+      <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center gap-2">
+        <select
+          class="border border-slate-300 bg-white rounded-lg px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
+          v-model="clipStore.visibility"
+        >
           <option value="private">{{ $t('common.private') }}</option>
           <option value="public">{{ $t('common.public') }}</option>
         </select>
-        <button v-if="saved" class="copy-btn" @click="onCopyLink">{{ $t('common.copy_link') }}</button>
-        <button class="save-btn" :disabled="saving" @click="onSaveBtnClick">
-          {{ saving ? $t('common.saving') : $t('common.save') }}
+
+        <button
+          v-if="saved"
+          class="inline-flex items-center gap-1 border border-slate-300 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+          @click="onCopyLink"
+        >
+          <span class="i-mdi-content-copy w-4 h-4"></span>
+          <span>{{ $t('common.copy_link') }}</span>
+        </button>
+
+        <a
+          v-if="saved"
+          :href="`/${encodeKeyPath(filename.trim())}`"
+          target="_blank"
+          class="inline-flex items-center gap-1 border border-slate-300 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition"
+        >
+          <span class="i-mdi-open-in-new w-4 h-4"></span>
+          <span>{{ $t('common.open_raw') }}</span>
+        </a>
+
+        <button
+          class="ml-auto inline-flex items-center gap-1.5 rounded-lg px-5 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 transition cursor-pointer"
+          :disabled="saving"
+          @click="onSaveBtnClick"
+        >
+          <span class="i-mdi-content-save-outline w-4 h-4"></span>
+          <span>{{ saving ? $t('common.saving') : $t('common.save') }}</span>
         </button>
       </div>
     </div>
@@ -158,58 +263,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-html,
-body,
-#app {
-  margin: 0;
-  padding: 0;
-  background-color: #f8f9fa;
-}
-
-.text-area {
-  --uno: rounded max-w-screen-md w-4/5 border-1 border-gray-300;
-  background-color: white;
-}
-
-.text-area .header {
-  background-color: #f5f5f5;
-}
-
-.text-area .footer {
-  --uno: flex flex-row;
-  background-color: #f5f5f5;
-}
-
-.text-area .footer .public-select {
-  --uno: border-1 rounded px-6 py-1.5 text-sm;
-  border-color: #d1d1d1;
-  outline-color: #0969da;
-}
-
-.text-area .footer .copy-btn {
-  --uno: border-1 rounded px-4 py-1.5 text-sm bg-white hover:bg-gray-100;
-  border-color: #d1d1d1;
-}
-
-.text-area .footer .save-btn {
-  --uno: rounded px-6 py-1.5 text-sm ml-auto text-white disabled:opacity-50;
-  background-color: #1f883d;
-}
-
-.text-area .footer .save-btn:hover {
-  background-color: #1a7f37;
-}
-
-.text-area .header .filename-input {
-  --uno: border-1 rounded px-3 py-2 text-sm w-60;
-  border-color: #d1d1d1;
-  outline-color: #0969da;
-}
-
 .cm-editor {
-  height: 400px;
-  border-top: 1px solid #ddd;
-  border-bottom: 1px solid #ddd;
+  height: 460px;
 }
 
 .cm-editor.cm-focused {
@@ -217,24 +272,15 @@ body,
 }
 
 .cm-gutter.cm-lineNumbers {
-  background-color: white;
+  background-color: #ffffff;
+  color: #94a3b8;
 }
 
 .cm-gutters {
-  border: none !important;
+  border-right: 1px solid #f1f5f9 !important;
 }
 
 .cm-selectionBackground {
   background-color: #54aeff66 !important;
-}
-
-.unsave-attention {
-  --uno: i-mdi-circle-small w-8 h-8 ml-auto;
-  color: #9a6700 !important;
-}
-
-.save-attention {
-  --uno: i-mdi-circle-small w-8 h-8 ml-auto;
-  color: #1f883d !important;
 }
 </style>

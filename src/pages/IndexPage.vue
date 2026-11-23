@@ -1,114 +1,54 @@
 <script setup lang="ts">
-import { useI18n } from "vue-i18n";
-import useI18nStore from "../store/i18n";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
 
-const i18nStore = useI18nStore();
-let updateLocale = (locale: string) => {
-  i18nStore.setLocale(locale);
-};
-
-const { locale } = useI18n();
-if (i18nStore.locale !== "") {
-  locale.value = i18nStore.locale;
-}
-
-let onClipAreaClick = () => {
-  router.push("/clip");
-};
-
-let onUploadClick = () => {
-  router.push("/file");
-};
-
-let onManageClick = () => {
-  router.push("/filemanage");
-};
+const cards = [
+  {
+    to: "/file",
+    titleKey: "index.file_channel_title",
+    descKey: "index.file_channel_desc",
+    icon: "i-mdi-cloud-upload-outline",
+    accent: "bg-sky-50 text-sky-600 border-sky-200",
+  },
+  {
+    to: "/clip",
+    titleKey: "index.clip_channel_title",
+    descKey: "index.clip_channel_desc",
+    icon: "i-mdi-clipboard-text-outline",
+    accent: "bg-rose-50 text-rose-600 border-rose-200",
+  },
+  {
+    to: "/filemanage",
+    titleKey: "index.manage_channel_title",
+    descKey: "index.manage_channel_desc",
+    icon: "i-mdi-folder-outline",
+    accent: "bg-emerald-50 text-emerald-600 border-emerald-200",
+  },
+];
 </script>
 
 <template>
-  <div class="flex flex-col items-center">
-    <div class="pannel file-pannel">
-      <div class="text-2xl flex flex-row items-center">
-        <router-link to="/file" class="link-hint">{{ $t("index.file_channel_title") }}</router-link>
+  <div class="max-w-4xl mx-auto px-4 py-10">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div
+        v-for="card in cards"
+        :key="card.to"
+        class="group bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md hover:border-slate-300 transition cursor-pointer flex flex-col gap-4"
+        @click="router.push(card.to)"
+      >
+        <div class="w-12 h-12 rounded-xl border flex items-center justify-center" :class="card.accent">
+          <span :class="card.icon" class="w-6 h-6"></span>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold text-slate-900 group-hover:text-emerald-600 transition">
+            {{ $t(card.titleKey) }}
+          </h2>
+          <p class="text-sm text-slate-500 mt-1.5 leading-relaxed">
+            {{ $t(card.descKey) }}
+          </p>
+        </div>
       </div>
-      <div class="upload-area" @click="onUploadClick"></div>
     </div>
-    <div class="pannel clip-pannel">
-      <div class="text-2xl flex flex-row items-center">
-        <router-link to="/clip" class="link-hint">{{ $t("index.clip_channel_title") }}</router-link>
-      </div>
-      <div class="clip-area" @click="onClipAreaClick"></div>
-    </div>
-    <div class="pannel manage-pannel cursor-pointer" @click="onManageClick">
-      <div class="text-2xl flex flex-row items-center justify-between">
-        <router-link to="/filemanage" class="link-hint">{{ $t("index.manage_channel_title") }}</router-link>
-        <div class="i-mdi-folder-outline w-7 h-7"></div>
-      </div>
-    </div>
-    <select v-model="$i18n.locale" class="locale-changer mb-6" @change="updateLocale($i18n.locale)">
-      <option v-for="loc in $i18n.availableLocales" :key="`locale-${loc}`" :value="loc">{{ loc }}</option>
-    </select>
   </div>
 </template>
-
-<style scoped>
-.pannel {
-  --uno: my-4 px-4 py-4 max-w-screen-md w-4/5 rounded shadow-md;
-}
-
-.file-pannel {
-  background-color: #bee5eb;
-}
-
-.clip-pannel {
-  background-color: #F27E93;
-}
-
-.manage-pannel {
-  background-color: #d1e7dd;
-}
-
-.upload-area {
-  --uno: border-dashed border-1 border-gray-400 h-30 mt-2 cursor-pointer;
-  background: url(../assets/upload.svg) center center no-repeat;
-  background-color: #f8f9fa;
-}
-
-.clip-area {
-  display: block;
-  width: 100%;
-  --uno: border-dashed border-1 border-gray-400 h-30 mt-2 cursor-pointer;
-  background: url(../assets/clipboard.svg) center center no-repeat;
-  background-color: #f8f9fa;
-}
-
-.link-hint {
-  text-decoration: underline;
-  text-decoration-style: dashed;
-  text-decoration-color: #6b7280;
-  text-underline-offset: 0.2em;
-}
-
-.link-hint:hover {
-  text-decoration-color: black;
-}
-
-.locale-changer {
-  border: grey 1px solid;
-  border-radius: 6px;
-  padding: 2px 4px;
-}
-</style>
-
-<style>
-html,
-body,
-#app {
-  margin: 0;
-  padding: 0;
-  background-color: #f8f9fa;
-}
-</style>

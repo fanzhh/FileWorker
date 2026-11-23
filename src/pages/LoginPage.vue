@@ -32,35 +32,38 @@ const onSubmitBtnClick = async () => {
             } else {
                 router.replace({ path: '/' });
             }
-        }, 400);
+        }, 300);
     } catch {
         Cookies.remove('PASSWORD', { path: '/' });
         toast($t("login.invalid_password"), 'error');
     } finally {
         loading.value = false;
     }
-}
+};
 </script>
 
 <template>
-    <div class="cursor-default flex flex-col items-center">
-        <div id="board">
-            <h1 class="text-lg">{{ $t("login.login_title") }}</h1>
-            <input class="my-5 px-2 py-1 w-64 border-2 rounded" type="password" v-model="password"
-                :placeholder="$t('login.password_placeholder')" @keyup.enter="onSubmitBtnClick">
-            <button id="submit-button" class="btn" :disabled="loading" @click="onSubmitBtnClick">
+    <div class="min-h-screen flex items-center justify-center px-4">
+        <div class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8 flex flex-col items-center">
+            <div class="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mb-3">
+                <span class="i-mdi-cloud-outline w-6 h-6 text-emerald-600"></span>
+            </div>
+            <h1 class="text-lg font-semibold text-slate-900">{{ $t("login.login_title") }}</h1>
+            <input
+                class="mt-6 mb-4 px-3.5 py-2 w-full border border-slate-300 rounded-lg text-sm outline-none focus:border-emerald-500"
+                type="password"
+                v-model="password"
+                :placeholder="$t('login.password_placeholder')"
+                @keyup.enter="onSubmitBtnClick"
+            />
+            <button
+                id="submit-button"
+                class="w-full rounded-lg cursor-pointer outline-none bg-emerald-600 text-white text-sm font-medium py-2.5 transition hover:bg-emerald-700 disabled:opacity-50"
+                :disabled="loading"
+                @click="onSubmitBtnClick"
+            >
                 {{ loading ? $t("common.loading") : $t("login.login_button") }}
             </button>
         </div>
     </div>
 </template>
-
-<style scoped>
-#board {
-    @apply rounded-lg flex flex-col bg-gray-100 border-2 border-gray-200 my-5 mx-2 p-4 justify-center items-center dark:(bg-dark-100 border-dark-300 text-gray-400);
-}
-
-.btn {
-    @apply rounded cursor-pointer outline-none bg-green-500 text-white text-lg py-1 px-4 transition w-64 hover:bg-green-600 disabled:opacity-50;
-}
-</style>
