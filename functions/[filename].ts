@@ -206,7 +206,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
     }
     const command = new CopyObjectCommand({
         Bucket: BUCKET!,
-        CopySource: `${BUCKET}/${filename}`,
+        CopySource: `${BUCKET}/${encodeURIComponent(filename)}`,
         Key: filename,
         MetadataDirective: "REPLACE",
         Metadata: mergedMeta,
