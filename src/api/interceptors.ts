@@ -8,10 +8,16 @@ const initInterceptors = () => {
             return response;
         },
         async (error: AxiosError) => {
-            toast("Error", "error");
-            if (error.response?.status === 401) {
-                await router.push('/login');
+            const status = error.response?.status;
+            if (status === 401) {
+                if (router.currentRoute.value.path !== '/login') {
+                    toast("Unauthorized", "error");
+                    await router.push('/login');
+                }
+            } else {
+                toast(error.message || "Error", "error");
             }
+            return Promise.reject(error);
         });
 }
 

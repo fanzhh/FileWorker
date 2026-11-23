@@ -1,104 +1,114 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, type Ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import useFileStore from '@/store/file';
-import { formatBytes } from '@/utils/utils';
-import { PutFile } from '@/api';
+import { copyToClipboard, formatBytes } from '@/utils/utils';
+import { toast } from '@/utils/toast';
+import { PutFile, encodeKeyPath } from '@/api';
 
+const { t: $t } = useI18n();
 const fileStore = useFileStore();
 
-let fileUploadInput = ref();
+let fileUploadInput = ref<HTMLInputElement>();
 
 let requestUploadFile = () => {
-  fileUploadInput.value.click();
+  fileUploadInput.value?.click();
 }
 
 interface UploadedFile {
   name: string;
   size: number;
   visibility: string;
+  progress: number;
   done: boolean;
+  failed: boolean;
 }
 
 let uploadedFiles: Ref<UploadedFile[]> = ref([]);
 
-const uploadSingle = async (index: number, filename: string, file: File) => {
-  await PutFile(filename, file, fileStore.visibility, "file");
-  uploadedFiles.value[index - 1].done = true;
+const uploadSingle = async (item: UploadedFile, file: File) => {
+  try {
+    await PutFile(file.name, file, item.visibility, "file", (evt) => {
+      if (evt.total) {
+        item.progress = Math.round((evt.loaded / evt.total) * 100);
+      }
+    });
+    item.progress = 100;
+    item.done = true;
+  } catch (error) {
+    console.error(error);
+    item.failed = true;
+    toast($t('common.upload_failed'), 'error');
+  }
 }
 
-onMounted(() => {
-  fileUploadInput.value.addEventListener('change', async (event: Event) => {
-    const target = event.target as HTMLInputElement;
-    const { files } = target;
-    if (files && files.length > 0) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const index = uploadedFiles.value.push({
-          name: file.name,
-          size: file.size,
-          visibility: fileStore.visibility,
-          done: false
-        });
-        try {
-          uploadSingle(index, file.name, file);
-        } catch (error) {
-          console.error(error);
-        }
-      }
-    }
-  });
-});
+const enqueueFiles = (files: FileList | null | undefined) => {
+  if (!files || files.length === 0) return;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const item: UploadedFile = {
+      name: file.name,
+      size: file.size,
+      visibility: fileStore.visibility,
+      progress: 0,
+      done: false,
+      failed: false,
+    };
+    uploadedFiles.value.push(item);
+    void uploadSingle(uploadedFiles.value[uploadedFiles.value.length - 1], file);
+  }
+}
 
-let fileUploadArea = ref();
+const onInputChange = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  enqueueFiles(target.files);
+  target.value = '';
+}
 
-const onDragEvent = async (event: DragEvent) => {
+const onCopyLink = async (name: string) => {
+  const url = `${window.location.origin}/${encodeKeyPath(name)}`;
+  if (await copyToClipboard(url)) {
+    toast($t('common.copied'), 'success');
+  }
+}
+
+let fileUploadArea = ref<HTMLElement>();
+
+const onDragEvent = (event: DragEvent) => {
   event.preventDefault();
   event.stopPropagation();
-  if (event.type === 'dragover') {
-    fileUploadArea.value.style.border = '2px dashed #000';
-  } else {
-    fileUploadArea.value.style.border = '2px dashed #e5e7eb';
+  if (fileUploadArea.value) {
+    fileUploadArea.value.style.border = event.type === 'dragover' ? '2px dashed #000' : '2px dashed #e5e7eb';
   }
   if (event.type === 'drop') {
-    const files = event.dataTransfer?.files;
-    if (files && files.length > 0) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const index = uploadedFiles.value.push({
-          name: file.name,
-          size: file.size,
-          visibility: fileStore.visibility,
-          done: false
-        });
-        try {
-          uploadSingle(index, file.name, file);
-        } catch (error) {
-          console.error(error);
-        }
-      }
-    }
+    enqueueFiles(event.dataTransfer?.files);
   }
 }
+
 onMounted(() => {
-  fileUploadArea.value.addEventListener('dragenter', onDragEvent);
-  fileUploadArea.value.addEventListener('dragover', onDragEvent);
-  fileUploadArea.value.addEventListener('dragleave', onDragEvent);
-  fileUploadArea.value.addEventListener('drop', onDragEvent);
+  fileUploadArea.value?.addEventListener('dragenter', onDragEvent);
+  fileUploadArea.value?.addEventListener('dragover', onDragEvent);
+  fileUploadArea.value?.addEventListener('dragleave', onDragEvent);
+  fileUploadArea.value?.addEventListener('drop', onDragEvent);
 });
 onUnmounted(() => {
-  fileUploadArea.value.removeEventListener('dragenter', onDragEvent);
-  fileUploadArea.value.removeEventListener('dragover', onDragEvent);
-  fileUploadArea.value.removeEventListener('dragleave', onDragEvent);
-  fileUploadArea.value.removeEventListener('drop', onDragEvent);
+  fileUploadArea.value?.removeEventListener('dragenter', onDragEvent);
+  fileUploadArea.value?.removeEventListener('dragover', onDragEvent);
+  fileUploadArea.value?.removeEventListener('dragleave', onDragEvent);
+  fileUploadArea.value?.removeEventListener('drop', onDragEvent);
 });
-
 </script>
 
 <template>
   <div class="flex flex-col items-center">
-    <div class="file-area flex flex-col mt-4">
+    <nav class="max-w-screen-md w-4/5 flex flex-row gap-4 mt-4 text-sm text-gray-600">
+      <router-link to="/" class="hover:underline">{{ $t('page_title.index') }}</router-link>
+      <router-link to="/clip" class="hover:underline">{{ $t('page_title.clip') }}</router-link>
+      <router-link to="/filemanage" class="hover:underline">{{ $t('page_title.filemanage') }}</router-link>
+    </nav>
+    <div class="file-area flex flex-col mt-3">
       <div class="files" @click="requestUploadFile" ref="fileUploadArea">
-        <input ref="fileUploadInput" type="file" class="hidden" multiple />
+        <input ref="fileUploadInput" type="file" class="hidden" multiple @change="onInputChange" />
       </div>
       <div class="footer p-2">
         <select class="public-select" v-model="fileStore.visibility">
@@ -108,15 +118,25 @@ onUnmounted(() => {
       </div>
     </div>
     <div class="px-4 py-4 max-w-screen-md w-4/5">
-      <a v-for="file in uploadedFiles" :key="file.name" class="w-full flex flex-row items-center mt-4"
-        :href="`/${file.name}`" target="_blank">
-        <div class="w-10 h-10 i-mdi-file-document-outline"></div>
-        <div class="flex flex-col">
-          <div class="text-lg font-semibold">{{ file.name }}</div>
-          <div class="text-sm text-gray">{{ formatBytes(file.size) }} {{ file.visibility }}</div>
+      <div v-for="(file, idx) in uploadedFiles" :key="`${file.name}-${idx}`"
+        class="w-full flex flex-row items-center mt-4 rounded border-1 border-gray-300 bg-white px-3 py-2 gap-3">
+        <div class="w-8 h-8 shrink-0 i-mdi-file-document-outline"></div>
+        <div class="flex flex-col min-w-0 flex-1">
+          <a class="text-base font-semibold truncate hover:underline" :href="`/${encodeKeyPath(file.name)}`" target="_blank">
+            {{ file.name }}
+          </a>
+          <div class="text-sm text-gray">
+            {{ formatBytes(file.size) }} · {{ file.visibility === 'public' ? $t('common.public') : $t('common.private') }}
+            <span v-if="!file.done && !file.failed"> · {{ file.progress }}%</span>
+            <span v-if="file.failed" class="text-red-500"> · {{ $t('common.upload_failed') }}</span>
+          </div>
         </div>
-        <div class="ml-auto w-6 h-6" :class="file.done ? 'i-mdi-check' : 'uploading'"></div>
-      </a>
+        <button v-if="file.done" class="text-xs px-2 py-1 rounded border-1 border-gray-300 hover:bg-gray-100"
+          @click="onCopyLink(file.name)">
+          {{ $t('common.copy_link') }}
+        </button>
+        <div class="w-6 h-6 shrink-0" :class="file.failed ? 'i-mdi-alert-circle text-red-500' : file.done ? 'i-mdi-check text-green-600' : 'uploading'"></div>
+      </div>
     </div>
   </div>
 </template>
@@ -130,21 +150,9 @@ body,
   background-color: #f8f9fa;
 }
 
-.pannel {
-  --uno: my-6 px-4 py-4 max-w-screen-md w-4/5 rounded shadow-md;
-}
-
-.tips-pannel {
-  background-color: #d1e7dd;
-}
-
 .file-area {
   --uno: rounded max-w-screen-md w-4/5 border-1 border-gray-300;
   background-color: white;
-}
-
-.file-area .header {
-  background-color: #f5f5f5;
 }
 
 .file-area .footer {
@@ -154,21 +162,6 @@ body,
 
 .file-area .footer .public-select {
   --uno: border-1 rounded px-6 py-1.5 text-sm;
-  border-color: #d1d1d1;
-  outline-color: #0969da;
-}
-
-.file-area .footer .save-btn {
-  --uno: rounded px-6 py-1.5 text-sm ml-auto text-white;
-  background-color: #1f883d;
-}
-
-.file-area .footer .save-btn:hover {
-  background-color: #1a7f37;
-}
-
-.file-area .header .filename-input {
-  --uno: border-1 rounded px-3 py-2 text-sm w-60;
   border-color: #d1d1d1;
   outline-color: #0969da;
 }
@@ -190,12 +183,12 @@ body,
 }
 
 .uploading {
-  border: 5px solid #f3f3f3;
-  border-top: 5px solid #555;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #555;
   border-radius: 50%;
-  width: 50px;
-  height: 50px;
+  width: 24px;
+  height: 24px;
   display: inline-block;
-  animation: spin 2s linear infinite;
+  animation: spin 1s linear infinite;
 }
 </style>

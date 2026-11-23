@@ -2,12 +2,6 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import Cookies from 'js-cookie'
 import i18n from "./i18n";
 
-import IndexPage from "./pages/IndexPage.vue";
-import ClipPage from "./pages/ClipPage.vue";
-import FilePage from "./pages/FilePage.vue";
-import LoginPage from "./pages/LoginPage.vue";
-import FileManagePage from "./pages/FileManagePage.vue";
-
 const $t = i18n.global.t;
 
 const routes = [
@@ -17,7 +11,7 @@ const routes = [
         meta: {
             title: $t("page_title.index"),
         },
-        component: IndexPage,
+        component: () => import("./pages/IndexPage.vue"),
     },
     {
         path: "/clip",
@@ -25,7 +19,7 @@ const routes = [
         meta: {
             title: $t("page_title.clip"),
         },
-        component: ClipPage,
+        component: () => import("./pages/ClipPage.vue"),
     },
     {
         path: "/file",
@@ -33,7 +27,7 @@ const routes = [
         meta: {
             title: $t("page_title.file"),
         },
-        component: FilePage,
+        component: () => import("./pages/FilePage.vue"),
     },
     {
         path: "/filemanage",
@@ -41,7 +35,7 @@ const routes = [
         meta: {
             title: $t("page_title.filemanage"),
         },
-        component: FileManagePage,
+        component: () => import("./pages/FileManagePage.vue"),
     },
     {
         path: "/login",
@@ -49,7 +43,7 @@ const routes = [
         meta: {
             title: $t("page_title.login"),
         },
-        component: LoginPage,
+        component: () => import("./pages/LoginPage.vue"),
     },
 ];
 

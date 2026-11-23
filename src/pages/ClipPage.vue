@@ -4,15 +4,26 @@ import { EditorState } from "@codemirror/state"
 import { EditorView, lineNumbers, highlightSpecialChars, drawSelection, dropCursor } from "@codemirror/view"
 
 import { onMounted, onBeforeUnmount, ref } from "vue";
+import { useRoute } from "vue-router";
+import { useI18n } from "vue-i18n";
 import useClipStore from "@/store/clip";
 
-import { PutFile } from "@/api";
-import { getRandomFilename } from "@/utils/utils";
+import { PutFile, GetFileText, encodeKeyPath } from "@/api";
+import { copyToClipboard, getRandomFilename } from "@/utils/utils";
+import { toast } from "@/utils/toast";
+
+const route = useRoute();
+const { t: $t } = useI18n();
 
 const code = ref("");
 const modified = ref(false);
+const saving = ref(false);
+const saved = ref(false);
 const editorElement = ref();
 let editor: EditorView;
+
+const initialKey = typeof route.query.key === 'string' && route.query.key ? route.query.key : '';
+let filename = ref(initialKey || getRandomFilename());
 
 let startState = EditorState.create({
   doc: "",
@@ -21,7 +32,6 @@ let startState = EditorState.create({
     lineNumbers(),
     highlightSpecialChars(),
     drawSelection(),
-    // 文件拖动
     dropCursor(),
     EditorView.updateListener.of((update) => {
       code.value = update.state.doc.toString();
@@ -32,7 +42,9 @@ let startState = EditorState.create({
   ]
 })
 
-onMounted(() => {
+const clipStore = useClipStore();
+
+onMounted(async () => {
   editor = new EditorView({
     state: startState,
     parent: editorElement.value,
@@ -42,19 +54,49 @@ onMounted(() => {
       editor.focus();
     }
   })
-})
 
-let filename = ref(getRandomFilename());
+  if (initialKey) {
+    try {
+      const res = await GetFileText(initialKey);
+      editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: res.content },
+      });
+      clipStore.setVisibility(res.visibility);
+      modified.value = false;
+      saved.value = true;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+})
 
 let refreshRandomFileName = () => {
   filename.value = getRandomFilename();
+  saved.value = false;
 }
 
-const clipStore = useClipStore();
-
 let onSaveBtnClick = async () => {
-  await PutFile(filename.value, code.value, clipStore.visibility, "text");
-  modified.value = false;
+  if (!filename.value.trim() || saving.value) {
+    return;
+  }
+  saving.value = true;
+  try {
+    await PutFile(filename.value.trim(), code.value, clipStore.visibility, "text");
+    modified.value = false;
+    saved.value = true;
+    toast($t('common.save_success'), 'success');
+  } catch (err) {
+    console.error(err);
+  } finally {
+    saving.value = false;
+  }
+}
+
+let onCopyLink = async () => {
+  const url = `${window.location.origin}/${encodeKeyPath(filename.value.trim())}`;
+  if (await copyToClipboard(url)) {
+    toast($t('common.copied'), 'success');
+  }
 }
 
 let saveContentKeydown = (e: KeyboardEvent) => {
@@ -69,14 +111,12 @@ let onPasteFile = async (e: ClipboardEvent) => {
     return;
   }
   const file = e.clipboardData.files[0];
-  console.log(file);
   const text = await file.text();
   const cursor = editor.state.selection.main.head;
   editor.dispatch({
     changes: { from: cursor, insert: text },
   });
 }
-
 
 onMounted(() => {
   window.addEventListener("keydown", saveContentKeydown);
@@ -87,24 +127,31 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", saveContentKeydown);
   document.removeEventListener("paste", onPasteFile);
 })
-
 </script>
 
 <template>
   <div class="flex flex-col items-center">
-    <div class="text-area flex flex-col mt-4">
+    <nav class="max-w-screen-md w-4/5 flex flex-row gap-4 mt-4 text-sm text-gray-600">
+      <router-link to="/" class="hover:underline">{{ $t('page_title.index') }}</router-link>
+      <router-link to="/file" class="hover:underline">{{ $t('page_title.file') }}</router-link>
+      <router-link to="/filemanage" class="hover:underline">{{ $t('page_title.filemanage') }}</router-link>
+    </nav>
+    <div class="text-area flex flex-col mt-3">
       <div class="header p-2 flex flex-row items-center">
         <input class="filename-input monospace" type="text" v-model="filename" :placeholder="$t('common.filename')" />
-        <button @click="refreshRandomFileName" class="i-mdi-refresh ml-1 w-5 h-5"></button>
+        <button @click="refreshRandomFileName" class="i-mdi-refresh ml-1 w-5 h-5" title="Random filename"></button>
         <div :class="modified ? 'unsave-attention' : 'save-attention'"></div>
       </div>
       <div ref="editorElement"></div>
-      <div class="footer p-2">
+      <div class="footer p-2 items-center gap-2">
         <select class="public-select" v-model="clipStore.visibility">
           <option value="private">{{ $t('common.private') }}</option>
           <option value="public">{{ $t('common.public') }}</option>
         </select>
-        <button class="save-btn" @click="onSaveBtnClick">{{ $t('common.save') }}</button>
+        <button v-if="saved" class="copy-btn" @click="onCopyLink">{{ $t('common.copy_link') }}</button>
+        <button class="save-btn" :disabled="saving" @click="onSaveBtnClick">
+          {{ saving ? $t('common.saving') : $t('common.save') }}
+        </button>
       </div>
     </div>
   </div>
@@ -117,14 +164,6 @@ body,
   margin: 0;
   padding: 0;
   background-color: #f8f9fa;
-}
-
-.pannel {
-  --uno: my-6 px-4 py-4 max-w-screen-md w-4/5 rounded shadow-md;
-}
-
-.tips-pannel {
-  background-color: #d1e7dd;
 }
 
 .text-area {
@@ -147,8 +186,13 @@ body,
   outline-color: #0969da;
 }
 
+.text-area .footer .copy-btn {
+  --uno: border-1 rounded px-4 py-1.5 text-sm bg-white hover:bg-gray-100;
+  border-color: #d1d1d1;
+}
+
 .text-area .footer .save-btn {
-  --uno: rounded px-6 py-1.5 text-sm ml-auto text-white;
+  --uno: rounded px-6 py-1.5 text-sm ml-auto text-white disabled:opacity-50;
   background-color: #1f883d;
 }
 

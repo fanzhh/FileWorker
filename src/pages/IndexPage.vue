@@ -22,32 +22,41 @@ let onClipAreaClick = () => {
 let onUploadClick = () => {
   router.push("/file");
 };
+
+let onManageClick = () => {
+  router.push("/filemanage");
+};
 </script>
 
 <template>
   <div class="flex flex-col items-center">
     <div class="pannel file-pannel">
       <div class="text-2xl flex flex-row items-center">
-        <router-link to="/filemanage" class="link-hint">{{ $t("index.file_channel_title") }}</router-link>
+        <router-link to="/file" class="link-hint">{{ $t("index.file_channel_title") }}</router-link>
       </div>
       <div class="upload-area" @click="onUploadClick"></div>
     </div>
     <div class="pannel clip-pannel">
       <div class="text-2xl flex flex-row items-center">
-        <router-link to="/filemanage" class="link-hint">{{ $t("index.clip_channel_title") }}</router-link>
+        <router-link to="/clip" class="link-hint">{{ $t("index.clip_channel_title") }}</router-link>
       </div>
       <div class="clip-area" @click="onClipAreaClick"></div>
     </div>
-    <!-- <div class="pannel tips-pannel">{{ $t("index.tips_content") }}</div> -->
-    <select v-model="$i18n.locale" class="locale-changer" @change="updateLocale($i18n.locale)">
-      <option v-for="locale in $i18n.availableLocales" :key="`locale-${locale}`" :value="locale">{{ locale }}</option>
+    <div class="pannel manage-pannel cursor-pointer" @click="onManageClick">
+      <div class="text-2xl flex flex-row items-center justify-between">
+        <router-link to="/filemanage" class="link-hint">{{ $t("index.manage_channel_title") }}</router-link>
+        <div class="i-mdi-folder-outline w-7 h-7"></div>
+      </div>
+    </div>
+    <select v-model="$i18n.locale" class="locale-changer mb-6" @change="updateLocale($i18n.locale)">
+      <option v-for="loc in $i18n.availableLocales" :key="`locale-${loc}`" :value="loc">{{ loc }}</option>
     </select>
   </div>
 </template>
 
 <style scoped>
 .pannel {
-  --uno: my-6 px-4 py-4 max-w-screen-md w-4/5 rounded shadow-md;
+  --uno: my-4 px-4 py-4 max-w-screen-md w-4/5 rounded shadow-md;
 }
 
 .file-pannel {
@@ -58,7 +67,7 @@ let onUploadClick = () => {
   background-color: #F27E93;
 }
 
-.tips-pannel {
+.manage-pannel {
   background-color: #d1e7dd;
 }
 
@@ -79,7 +88,7 @@ let onUploadClick = () => {
 .link-hint {
   text-decoration: underline;
   text-decoration-style: dashed;
-  text-decoration-color: #a0aec0;
+  text-decoration-color: #6b7280;
   text-underline-offset: 0.2em;
 }
 
